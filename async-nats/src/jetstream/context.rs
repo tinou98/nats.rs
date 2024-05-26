@@ -41,7 +41,7 @@ use tracing::debug;
 use super::consumer::{self, Consumer, FromConsumer, IntoConsumerConfig};
 use super::errors::ErrorCode;
 use super::is_valid_name;
-use super::kv::{Store, MAX_HISTORY};
+use super::kv::{self, Store, MAX_HISTORY};
 use super::object_store::{is_valid_bucket_name, ObjectStore};
 use super::stream::{
     self, Config, ConsumerError, ConsumerErrorKind, DeleteStatus, DiscardPolicy, External, Info,
@@ -643,6 +643,7 @@ impl Context {
             page_request: None,
             streams: Vec::new(),
             done: false,
+            subject: None,
         }
     }
     /// Returns an existing key-value bucket.
@@ -852,6 +853,48 @@ impl Context {
         self.delete_stream(stream_name)
             .map_err(|err| KeyValueError::with_source(KeyValueErrorKind::JetStream, err))
             .await
+    }
+
+    /// Lists names of all key-value bucket for current context.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use futures::TryStreamExt;
+    /// let client = async_nats::connect("demo.nats.io:4222").await?;
+    /// let jetstream = async_nats::jetstream::new(client);
+    /// let mut kv_names = jetstream.key_value_store_names();
+    /// while let Some(kv_name) = kv_names.try_next().await? {
+    ///     println!("KV: {}", kv_name);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn key_value_store_names(&self) -> kv::lister::KeyValueNames {
+        kv::lister::KeyValueNames::new(self)
+    }
+
+    /// Lists all key-value bucket info for current context.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), async_nats::Error> {
+    /// use futures::TryStreamExt;
+    /// let client = async_nats::connect("demo.nats.io:4222").await?;
+    /// let jetstream = async_nats::jetstream::new(client);
+    /// let mut kv_infos = jetstream.key_value_stores();
+    /// while let Some(kv_info) = kv_infos.try_next().await? {
+    ///     println!("KV: {:?}", kv_info);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn key_value_stores(&self) -> kv::lister::KeyValueStores {
+        kv::lister::KeyValueStores::new(self)
     }
 
     // pub async fn update_key_value<C: Borrow<kv::Config>>(&self, config: C) -> Result<(), crate::Error> {
@@ -1391,7 +1434,7 @@ pub struct StreamNames {
     context: Context,
     offset: usize,
     page_request: Option<PageRequest>,
-    subject: Option<String>,
+    pub(crate) subject: Option<String>,
     streams: Vec<String>,
     done: bool,
 }
@@ -1470,6 +1513,7 @@ pub struct Streams {
     page_request: Option<PageInfoRequest>,
     streams: Vec<super::stream::Info>,
     done: bool,
+    pub(crate) subject: Option<String>,
 }
 
 impl futures::Stream for Streams {
